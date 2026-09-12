@@ -17,7 +17,7 @@ namespace QuickDiscard
     {
         public const string PluginGuid = "com.dawncloud.quickdiscard";
         public const string PluginName = "Quick Discard";
-        public const string PluginVersion = "0.1.0";
+        public const string PluginVersion = "0.3.0";
 
         internal static QuickDiscardPlugin Instance;
         internal static ManualLogSource Log;
@@ -26,9 +26,13 @@ namespace QuickDiscard
         internal static ConfigEntry<bool> RaidOnly;
         internal static ConfigEntry<bool> SkipConfirmation;
         internal static ConfigEntry<KeyboardShortcut> DiscardHotkey;
-        internal static ConfigEntry<float> DropZoneWidth;
-        internal static ConfigEntry<float> DropZoneHeight;
+        internal static ConfigEntry<float> DropZoneAnchorMinX;
+        internal static ConfigEntry<float> DropZoneAnchorMinY;
+        internal static ConfigEntry<float> DropZoneAnchorMaxX;
+        internal static ConfigEntry<float> DropZoneAnchorMaxY;
         internal static ConfigEntry<float> DropZoneMargin;
+        internal static ConfigEntry<string> DropZoneLabel;
+        internal static ConfigEntry<bool> DumpInventoryLayout;
 
         private Harmony _harmony;
 
@@ -61,23 +65,47 @@ namespace QuickDiscard
                 KeyboardShortcut.Empty,
                 "Optional hotkey. Discards the item currently under the mouse while the inventory screen is open.");
 
-            DropZoneWidth = Config.Bind(
+            DropZoneAnchorMinX = Config.Bind(
                 "UI",
-                "Width",
-                168f,
-                "Drop zone width in UI pixels.");
+                "AnchorMinX",
+                0.006f,
+                "Left edge of the discard zone, as a fraction of the inventory screen width.");
 
-            DropZoneHeight = Config.Bind(
+            DropZoneAnchorMinY = Config.Bind(
                 "UI",
-                "Height",
-                88f,
-                "Drop zone height in UI pixels.");
+                "AnchorMinY",
+                0.02f,
+                "Bottom edge of the discard zone, as a fraction of the inventory screen height.");
+
+            DropZoneAnchorMaxX = Config.Bind(
+                "UI",
+                "AnchorMaxX",
+                0.271f,
+                "Right edge of the discard zone, as a fraction of the inventory screen width.");
+
+            DropZoneAnchorMaxY = Config.Bind(
+                "UI",
+                "AnchorMaxY",
+                0.13f,
+                "Top edge of the discard zone, as a fraction of the inventory screen height.");
 
             DropZoneMargin = Config.Bind(
                 "UI",
                 "Margin",
-                24f,
-                "Distance from the lower-right corner of the inventory screen.");
+                0f,
+                "Inset in UI pixels applied inside the anchor rectangle. 0 fills the rectangle completely.");
+
+            DropZoneLabel = Config.Bind(
+                "UI",
+                "Label",
+                "DROP",
+                "Text shown in the middle of the discard zone.");
+
+            DumpInventoryLayout = Config.Bind(
+                "Debug",
+                "DumpInventoryLayout",
+                false,
+                "Write the inventory screen layout (normalized rects of each panel) to the BepInEx log (up to 4 dumps per session).");
 
             _harmony = new Harmony(PluginGuid);
             _harmony.PatchAll(typeof(QuickDiscardPlugin).Assembly);
@@ -147,4 +175,3 @@ namespace QuickDiscard
         }
     }
 }
-
