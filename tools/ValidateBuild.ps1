@@ -81,9 +81,37 @@ $checks += @{
     Value = $showMessageWindow
 }
 
+$checks += @{
+    Name = "InventoryScreen._tabs (TabGroup) field"
+    Value = $inventoryScreenType.GetField(
+        "_tabs",
+        [Reflection.BindingFlags]"Public,NonPublic,Instance")
+}
+
+$tabGroupType = $gameAssembly.GetType("EFT.UI.TabGroup", $true)
+$checks += @{
+    Name = "TabGroup._selectedTab field"
+    Value = $tabGroupType.GetField(
+        "_selectedTab",
+        [Reflection.BindingFlags]"Public,NonPublic,Instance")
+}
+
+$checks += @{
+    Name = "InventoryScreen._tabDictionary field"
+    Value = $inventoryScreenType.GetField(
+        "_tabDictionary",
+        [Reflection.BindingFlags]"Public,NonPublic,Instance")
+}
+
+$inventoryTabType = $gameAssembly.GetType("EFT.UI.EInventoryTab", $true)
+$checks += @{
+    Name = "EInventoryTab.Gear enum value"
+    Value = [System.Enum]::GetNames($inventoryTabType) -contains "Gear"
+}
+
 $failed = $false
 foreach ($check in $checks) {
-    if ($null -eq $check.Value) {
+    if ($null -eq $check.Value -or $false -eq $check.Value) {
         Write-Output ("MISSING: " + $check.Name)
         $failed = $true
     }

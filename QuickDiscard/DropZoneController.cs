@@ -2,9 +2,11 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
 using System.Text;
 using EFT.InventoryLogic;
 using EFT.UI;
+using HarmonyLib;
 using EFT.UI.DragAndDrop;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -36,6 +38,30 @@ namespace QuickDiscard
         private static int _layoutDumpCount;
         private static bool _layoutDumpRunning;
 
+        // Tab gate: the other tabs (skills/tasks/map/...) are siblings of the equipment panel
+        // inside InventoryScreen, so the zone has to hide itself when another tab is selected.
+        private static readonly FieldInfo InventoryTabsField =
+            AccessTools.Field(typeof(InventoryScreen), "_tabs");
+
+        private static readonly FieldInfo TabGroupSelectedTabField =
+            AccessTools.Field(typeof(TabGroup), "_selectedTab");
+
+        private static readonly FieldInfo InventoryTabDictionaryField =
+            AccessTools.Field(typeof(InventoryScreen), "_tabDictionary");
+
+        private static PropertyInfo _pairKeyProperty;
+        private static PropertyInfo _pairValueProperty;
+        private static bool _pairPropertiesResolved;
+
+        private object _cachedSelectedTab;
+        private bool _tabGateInitialized;
+        private bool _equipmentTabActive = true;
+        private bool _tabGateWarningLogged;
+        private string _loggedTabName;
+        private bool _loggedTabVisible;
+        private bool _zoneVisible;
+        private bool _visibilityApplied;
+
         private const int LayoutDumpLimit = 4;
         private const int LayoutEntryLimit = 220;
 
@@ -63,7 +89,192 @@ namespace QuickDiscard
                     return false;
                 }
 
+                RefreshTabGate();
+
+                if (!_equipmentTabActive)
+                {
+                    return false;
+                }
+
                 return true;
+            }
+        }
+
+        /// <summary>
+        /// Reads the inventory tab bar and decides whether the equipment (Gear) tab is the
+        /// selected one. Any other tab (skills/tasks/map/achievements/...) hides the zone.
+        /// </summary>
+        private void RefreshTabGate()
+        {
+            if (QuickDiscardPlugin.EquipmentTabOnly == null || !QuickDiscardPlugin.EquipmentTabOnly.Value)
+            {
+                _cachedSelectedTab = null;
+                _tabGateInitialized = true;
+                _equipmentTabActive = true;
+                return;
+            }
+
+            object selectedTab = ReadSelectedTab();
+            if (_tabGateInitialized && ReferenceEquals(selectedTab, _cachedSelectedTab))
+            {
+                return;
+            }
+
+            _cachedSelectedTab = selectedTab;
+            _tabGateInitialized = true;
+
+            string resolvedTab;
+            bool equipmentTab;
+            if (TryResolveSelectedTab(selectedTab, out equipmentTab, out resolvedTab))
+            {
+                _equipmentTabActive = equipmentTab;
+            }
+            else if (selectedTab == null)
+            {
+                // Transitional state: the tab bar has not selected anything yet.
+                _equipmentTabActive = true;
+            }
+            else
+            {
+                _equipmentTabActive = TabGateUnknown(resolvedTab);
+            }
+
+            LogTabGate(resolvedTab, _equipmentTabActive);
+        }
+
+        private object ReadSelectedTab()
+        {
+            if (_screen == null || InventoryTabsField == null || TabGroupSelectedTabField == null)
+            {
+                return null;
+            }
+
+            object tabGroup = InventoryTabsField.GetValue(_screen);
+            if (tabGroup == null)
+            {
+                return null;
+            }
+
+            return TabGroupSelectedTabField.GetValue(tabGroup);
+        }
+
+        /// <summary>
+        /// Matches the tab the inventory screen is showing against its EInventoryTab entry.
+        /// Returns false when the tab could not be identified; <paramref name="tabName"/> then
+        /// carries the reason instead of a tab name.
+        /// </summary>
+        private bool TryResolveSelectedTab(object selectedTab, out bool equipmentTab, out string tabName)
+        {
+            equipmentTab = true;
+            tabName = "none";
+
+            // Tab bar not initialised yet - keep the previous behaviour instead of flashing.
+            if (selectedTab == null)
+            {
+                tabName = "no tab selected yet";
+                return false;
+            }
+
+            if (InventoryTabDictionaryField == null)
+            {
+                tabName = "InventoryScreen._tabDictionary is missing";
+                return false;
+            }
+
+            object dictionary = InventoryTabDictionaryField.GetValue(_screen);
+            IEnumerable pairs = dictionary as IEnumerable;
+            if (pairs == null)
+            {
+                tabName = "InventoryScreen._tabDictionary is not enumerable";
+                return false;
+            }
+
+            ResolvePairProperties();
+            if (_pairKeyProperty == null || _pairValueProperty == null)
+            {
+                tabName = "tab dictionary entries could not be inspected";
+                return false;
+            }
+
+            foreach (object pair in pairs)
+            {
+                if (pair == null)
+                {
+                    continue;
+                }
+
+                object value = _pairValueProperty.GetValue(pair, null);
+                if (!ReferenceEquals(value, selectedTab))
+                {
+                    continue;
+                }
+
+                object key = _pairKeyProperty.GetValue(pair, null);
+                tabName = key == null ? "unknown" : key.ToString();
+                equipmentTab = key is EInventoryTab && (EInventoryTab)key == EInventoryTab.Gear;
+                return true;
+            }
+
+            tabName = "selected tab is not listed in InventoryScreen._tabDictionary";
+            return false;
+        }
+
+        private void LogTabGate(string tabName, bool equipmentTab)
+        {
+            if (QuickDiscardPlugin.LogTabGate == null ||
+                !QuickDiscardPlugin.LogTabGate.Value ||
+                QuickDiscardPlugin.Log == null)
+            {
+                return;
+            }
+
+            if (_loggedTabName == tabName && _loggedTabVisible == equipmentTab)
+            {
+                return;
+            }
+
+            _loggedTabName = tabName;
+            _loggedTabVisible = equipmentTab;
+
+            QuickDiscardPlugin.Log.LogInfo(string.Format(
+                CultureInfo.InvariantCulture,
+                "TAB-GATE tab={0} equipmentTab={1}",
+                tabName,
+                equipmentTab));
+        }
+
+        private bool TabGateUnknown(string reason)
+        {
+            if (!_tabGateWarningLogged && QuickDiscardPlugin.Log != null)
+            {
+                _tabGateWarningLogged = true;
+                QuickDiscardPlugin.Log.LogWarning(
+                    "Quick Discard could not resolve the active inventory tab (" + reason +
+                    "); the discard zone stays visible on every tab.");
+            }
+
+            return true;
+        }
+
+        private static void ResolvePairProperties()
+        {
+            if (_pairPropertiesResolved)
+            {
+                return;
+            }
+
+            _pairPropertiesResolved = true;
+
+            try
+            {
+                Type pairType = typeof(KeyValuePair<EInventoryTab, Tab>);
+                _pairKeyProperty = pairType.GetProperty("Key");
+                _pairValueProperty = pairType.GetProperty("Value");
+            }
+            catch (Exception)
+            {
+                _pairKeyProperty = null;
+                _pairValueProperty = null;
             }
         }
 
@@ -99,6 +310,7 @@ namespace QuickDiscard
             _screen = screen;
             _screenController = screenController;
             Instance = this;
+            _tabGateInitialized = false;
 
             if (_rectTransform == null)
             {
@@ -354,6 +566,9 @@ namespace QuickDiscard
             outline.effectColor = new Color(0f, 0f, 0f, 0.8f);
             outline.effectDistance = new Vector2(1f, -1f);
 
+            _zoneVisible = true;
+            _visibilityApplied = false;
+
             ApplyPlacement();
         }
 
@@ -511,7 +726,20 @@ namespace QuickDiscard
                 return;
             }
 
-            _rectTransform.gameObject.SetActive(IsAvailable);
+            bool available = IsAvailable;
+            if (_visibilityApplied && available == _zoneVisible)
+            {
+                return;
+            }
+
+            _visibilityApplied = true;
+            _zoneVisible = available;
+            _rectTransform.gameObject.SetActive(available);
+
+            if (!available)
+            {
+                SetHovered(false);
+            }
         }
 
         private void SetHovered(bool hovered)
@@ -539,6 +767,7 @@ namespace QuickDiscard
         {
             ApplyPlacement();
             UpdateLabelSize();
+            UpdateVisibility();
         }
 
         private void OnDisable()

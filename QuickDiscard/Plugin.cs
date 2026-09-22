@@ -17,13 +17,14 @@ namespace QuickDiscard
     {
         public const string PluginGuid = "com.dawncloud.quickdiscard";
         public const string PluginName = "Quick Discard";
-        public const string PluginVersion = "0.3.0";
+        public const string PluginVersion = "0.4.1";
 
         internal static QuickDiscardPlugin Instance;
         internal static ManualLogSource Log;
 
         internal static ConfigEntry<bool> EnableDropZone;
         internal static ConfigEntry<bool> RaidOnly;
+        internal static ConfigEntry<bool> EquipmentTabOnly;
         internal static ConfigEntry<bool> SkipConfirmation;
         internal static ConfigEntry<KeyboardShortcut> DiscardHotkey;
         internal static ConfigEntry<float> DropZoneAnchorMinX;
@@ -33,6 +34,7 @@ namespace QuickDiscard
         internal static ConfigEntry<float> DropZoneMargin;
         internal static ConfigEntry<string> DropZoneLabel;
         internal static ConfigEntry<bool> DumpInventoryLayout;
+        internal static ConfigEntry<bool> LogTabGate;
 
         private Harmony _harmony;
 
@@ -53,6 +55,12 @@ namespace QuickDiscard
                 true,
                 "Only show and activate the discard zone while in raid.");
 
+            EquipmentTabOnly = Config.Bind(
+                "General",
+                "EquipmentTabOnly",
+                true,
+                "Only show and activate the discard zone while the equipment tab of the inventory screen is selected. Other tabs (health, skills, tasks, map, notes, achievements, prestige, overall) hide it.");
+
             SkipConfirmation = Config.Bind(
                 "General",
                 "SkipConfirmation",
@@ -69,31 +77,41 @@ namespace QuickDiscard
                 "UI",
                 "AnchorMinX",
                 0.006f,
-                "Left edge of the discard zone, as a fraction of the inventory screen width.");
+                new ConfigDescription(
+                    "Left edge of the discard zone, as a fraction of the inventory screen width.",
+                    new AcceptableValueRange<float>(0f, 1f)));
 
             DropZoneAnchorMinY = Config.Bind(
                 "UI",
                 "AnchorMinY",
                 0.02f,
-                "Bottom edge of the discard zone, as a fraction of the inventory screen height.");
+                new ConfigDescription(
+                    "Bottom edge of the discard zone, as a fraction of the inventory screen height.",
+                    new AcceptableValueRange<float>(0f, 1f)));
 
             DropZoneAnchorMaxX = Config.Bind(
                 "UI",
                 "AnchorMaxX",
                 0.271f,
-                "Right edge of the discard zone, as a fraction of the inventory screen width.");
+                new ConfigDescription(
+                    "Right edge of the discard zone, as a fraction of the inventory screen width.",
+                    new AcceptableValueRange<float>(0f, 1f)));
 
             DropZoneAnchorMaxY = Config.Bind(
                 "UI",
                 "AnchorMaxY",
                 0.13f,
-                "Top edge of the discard zone, as a fraction of the inventory screen height.");
+                new ConfigDescription(
+                    "Top edge of the discard zone, as a fraction of the inventory screen height.",
+                    new AcceptableValueRange<float>(0f, 1f)));
 
             DropZoneMargin = Config.Bind(
                 "UI",
                 "Margin",
                 0f,
-                "Inset in UI pixels applied inside the anchor rectangle. 0 fills the rectangle completely.");
+                new ConfigDescription(
+                    "Inset in UI pixels applied inside the anchor rectangle. 0 fills the rectangle completely.",
+                    new AcceptableValueRange<float>(0f, 200f)));
 
             DropZoneLabel = Config.Bind(
                 "UI",
@@ -106,6 +124,12 @@ namespace QuickDiscard
                 "DumpInventoryLayout",
                 false,
                 "Write the inventory screen layout (normalized rects of each panel) to the BepInEx log (up to 4 dumps per session).");
+
+            LogTabGate = Config.Bind(
+                "Debug",
+                "LogTabGate",
+                false,
+                "Write the inventory tab the screen is currently showing to the BepInEx log whenever it changes. Used to diagnose General.EquipmentTabOnly.");
 
             _harmony = new Harmony(PluginGuid);
             _harmony.PatchAll(typeof(QuickDiscardPlugin).Assembly);
